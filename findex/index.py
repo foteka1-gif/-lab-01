@@ -1,83 +1,128 @@
 import argparse
-import time
 import os
-import re
+import time
+import tracemalloc
 from collections import defaultdict, Counter
-# Імпортуємо графічне вікно вибору файлу
-from tkinter import filedialog, Tk 
+from pathlib import Path
+ 
 from . import Posting, DocMeta
-from .store import save_pickle, save_json
-
-def clean_and_tokenize(text: str) -> list[str]:
-    """Очищає текст від пунктуації та розбиває на слова."""
-    text = text.lower()
-    text = re.sub(r'[^\w\s]', ' ', text)
-    return text.split()
-
-def build_index(corpus_pipeline):
+from .corpus import iter_documents
+from .decorators import timed, setup_logging
+from .model import Index, save_index, load_index
+from .tokenize import tokenize
+ 
+ 
+@timed  # ЛАБ 3: сліди часу побудови в лозі
+def build_index(corpus_pipeline, positions=False):
+    """Тепер повертає Index (а не кортеж із трьох dict-ів)."""
     postings = defaultdict(list)
     doc_lengths = {}
     doc_meta = {}
-    
+ 
     for doc_id, path, title, tokens in corpus_pipeline:
-        doc_meta[doc_id] = DocMeta(path=path, title=title)
-        doc_lengths[doc_id] = len(tokens)
-        
-        term_counts = Counter(tokens)
+        doc_meta[doc_id] = DocMeta(path=str(path), title=title)
+ 
+        if positions:
+            term_counts = Counter()
+            term_positions = defaultdict(list)
+            for pos, token in enumerate(tokens):
+                term_counts[token] += 1
+                term_positions[token].append(pos)
+        else:
+            term_counts = Counter(tokens)
+            term_positions = None
+ 
+        doc_lengths[doc_id] = sum(term_counts.values())
+ 
         for term, tf in term_counts.items():
-            postings[term].append(Posting(doc_id=doc_id, tf=tf))
-            
-    return postings, doc_lengths, doc_meta
-
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Побудова та збереження індексу.")
-    parser.add_argument("--out", type=str, default="index.bin", help="Шлях до файлу для збереження індексу")
-    parser.add_argument("--format", type=str, default="pickle", choices=["pickle", "json"], help="Формат збереження")
+            postings[term].append(
+                Posting(
+                    doc_id=doc_id,
+                    tf=tf,
+                    positions=tuple(term_positions[term]) if positions else (),
+                )
+            )
+ 
+    return Index(dict(postings), doc_lengths, doc_meta)
+ 
+ 
+def make_pipeline(root):
+    for doc_id, doc in enumerate(iter_documents(root)):
+        filename = Path(doc.path).name
+        title = Path(filename).stem
+        tokens = tokenize(doc.text)
+        yield doc_id, doc.path, title, tokens
+ 
+ 
+def main():
+    parser = argparse.ArgumentParser(description="Побудова інвертованого індексу.")
+    parser.add_argument("data", type=str, nargs="?", default="data")
+    parser.add_argument("--out", type=str, default="index.bin")
+    parser.add_argument("--format", choices=["pickle", "json"], default="pickle")
+    parser.add_argument("--memory-report", action="store_true")
+    parser.add_argument("--positions", action="store_true",
+                        help="зберігати позиції токенів (потрібно для фраз)")
     args = parser.parse_args()
-    
-    # Створюємо приховане вікно комп'ютера для вибору файлу
-    root = Tk()
-    root.withdraw()
-    root.attributes('-topmost', True)
-    
-    print(" Будь ласка, виберіть ваш текстовий файл у вікні, що відкрилося...")
-    # Відкриваємо провідник Windows для вибору файлу .txt
-    file_path = filedialog.askopenfilename(
-        title="Виберіть текстовий файл з Lab 01",
-        filetypes=[("Текстові файли", "*.txt")]
-    )
-    
-    if not file_path:
-        print("❌ Файл не вибрано. Скрипт зупинено.")
-        exit()
-        
-    print(f"✅ Вибрано файл: {file_path}")
-    print("Будуємо індекс...")
-    start_time = time.time()
-    
-    # Читаємо вибраний вами файл
-    with open(file_path, "r", encoding="utf-8") as f:
-        content = f.read()
-        
-    filename = os.path.basename(file_path)
-    title = os.path.splitext(filename)[0]
-    tokens = clean_and_tokenize(content)
-    
-    # Передаємо в пайплайн наш єдиний реальний документ
-    real_corpus = [(0, file_path, title, tokens)]
-    index_data = build_index(real_corpus)
-    
-    build_elapsed = time.time() - start_time
-    print(f"Індекс побудовано за {build_elapsed:.4f} сек.")
-    print(f"Усього проіндексовано унікальних слів: {len(index_data[0])}")
-    
-    # Зберігаємо індекс поруч із вибраним файлом, щоб не загубити
-    output_dir = os.path.dirname(file_path)
-    final_output_path = os.path.join(output_dir, args.out)
-    
-    print(f"Зберігаємо індекс за шляхом: {final_output_path}...")
-    if args.format == "pickle":
-        save_pickle(index_data, final_output_path)
-    else:
-        save_json(index_data, final_output_path)
-    print(" Успішно збережено!")
+ 
+    setup_logging()
+ 
+    root = Path(args.data)
+    if not root.exists() or not root.is_dir():
+        parser.error("Папка з документами не знайдена.")
+ 
+    output_path = Path(args.out)
+    if not output_path.is_absolute():
+        output_path = Path.cwd() / output_path
+ 
+    print("Папка документів:", root.resolve())
+    print("Починаємо побудову індексу...")
+ 
+    tracemalloc.start()
+    start_time = time.perf_counter()
+    index = build_index(make_pipeline(root), positions=args.positions)
+    build_time = time.perf_counter() - start_time
+    current_memory, peak_memory = tracemalloc.get_traced_memory()
+    tracemalloc.stop()
+ 
+    print("\nІНДЕКС ПОБУДОВАНО")
+    print("-------------------------")
+    print(index)
+    print("Документів:", index.num_docs)
+    print("Унікальних слів:", len(index))
+    print("Усього постінгів:", sum(len(v) for v in index.values()))
+    print("Позиції збережено:", index.has_positions)
+    print(f"Середня довжина документа: {index.avg_doc_length:.1f} токенів")
+    print(f"Час побудови: {build_time:.6f} сек.")
+    print(f"Поточна пам'ять: {current_memory / 1024 / 1024:.4f} MB")
+    print(f"Пікова пам'ять: {peak_memory / 1024 / 1024:.4f} MB")
+ 
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+ 
+    print("\nЗБЕРЕЖЕННЯ ІНДЕКСУ")
+    save_start = time.perf_counter()
+    save_index(index, output_path, args.format)
+    save_time = time.perf_counter() - save_start
+    print("Файл:", output_path)
+    print(f"Розмір файлу: {os.path.getsize(output_path) / 1024 / 1024:.4f} MB")
+    print(f"Час збереження: {save_time:.6f} сек.")
+ 
+    print("\nЗАВАНТАЖЕННЯ ІНДЕКСУ")
+    load_start = time.perf_counter()
+    loaded = load_index(output_path, args.format)
+    load_time = time.perf_counter() - load_start
+    print(f"Час завантаження: {load_time:.6f} сек.")
+    print("Індекс успішно завантажено:", loaded)
+ 
+    # Index — це Mapping, тому benchmark.py працює з ним без жодних змін логіки
+    if args.memory_report:
+        from .benchmark import measure_memory_report
+        measure_memory_report(index)
+ 
+    from .benchmark import benchmark_search
+    benchmark_search(index)
+ 
+    print("\nРОБОТУ ЗАВЕРШЕНО УСПІШНО.")
+ 
+ 
+if __name__ == "__main__":
+    main()

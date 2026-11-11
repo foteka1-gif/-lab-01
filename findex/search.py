@@ -1,73 +1,112 @@
+"""Ранжований пошук: парсер -> evaluate -> Scorer -> heapq.nlargest -> сніпети."""
 import argparse
+import functools
+import heapq
 import time
-# Чисті відносні імпорти
-from .store import load_pickle, load_json
-from . import Posting
-
-def merge_and(list_a: list[Posting], list_b: list[Posting]) -> list[Posting]:
-    """
-    Алгоритм двопокажчикового злиття для логічного AND.
-    Складність: O(len(a) + len(b))
-    """
-    result = []
-    i, j = 0, 0
-    
-    while i < len(list_a) and j < len(list_b):
-        if list_a[i].doc_id == list_b[j].doc_id:
-            result.append(Posting(doc_id=list_a[i].doc_id, tf=list_a[i].tf + list_b[j].tf))
-            i += 1
-            j += 1
-        elif list_a[i].doc_id < list_b[j].doc_id:
-            i += 1
-        else:
-            j += 1
-            
-    return result
-
-def search_set_and(list_a: list[Posting], list_b: list[Posting]) -> list[Posting]:
-    """
-    Альтернативний рушій пошуку на основі вбудованих множин set.
-    """
-    set_a = {p.doc_id for p in list_a}
-    set_b = {p.doc_id for p in list_b}
-    common_ids = set_a & set_b
-    return [p for p in list_a if p.doc_id in common_ids]
-
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Булевий пошук за індексом.")
-    parser.add_argument("index_file", type=str, help="Шлях до файлу індексу")
-    parser.add_argument("query", type=str, help="Пошуковий запит")
-    parser.add_argument("--format", type=str, default="pickle", choices=["pickle", "json"], help="Формат індексу")
-    parser.add_argument("--engine", type=str, default="merge", choices=["merge", "set"], help="Рушій пошуку")
+from dataclasses import dataclass, field
+ 
+from .decorators import timed, setup_logging, log
+from .model import open_index
+from .query import parse
+from .scoring import BM25, TfIdf
+from .snippets import snippet_for
+ 
+ 
+@dataclass(frozen=True, order=True)
+class SearchResult:
+    # order=True порівнює поля за порядком оголошення -> score першим,
+    # тож sorted(results) / max(results) впорядковують за релевантністю.
+    score: float
+    doc_id: int
+    title: str
+    snippet: str = field(default="", compare=False)
+ 
+    def __str__(self):
+        return f"{self.score:8.4f} | ID {self.doc_id} | {self.title}"
+ 
+ 
+@timed
+def search(index, query, scorer=None, k=10, matcher=None):
+    """Повертає top-k SearchResult (найкращі першими)."""
+    scorer = scorer if scorer is not None else BM25()
+    tree = parse(query)
+    matched = set(matcher(query)) if matcher else tree.evaluate(index)
+ 
+    scores = dict.fromkeys(matched, 0.0)  # документи, що пройшли булевий фільтр
+    for term in dict.fromkeys(tree.terms()):  # унікальні, у порядку появи
+        for posting in index.get(term, ()):
+            if posting.doc_id in scores:
+                scores[posting.doc_id] += scorer(term, posting, index)
+ 
+    # O(n log k), а не повне сортування O(n log n); при рівних балах — менший doc_id
+    top = heapq.nlargest(k, scores.items(), key=lambda kv: (kv[1], -kv[0]))
+    return [
+        SearchResult(score=score, doc_id=doc_id, title=index.meta(doc_id).title)
+        for doc_id, score in top
+    ]
+ 
+ 
+def make_matcher(index, maxsize=256):
+    """Замикання: lru_cache живе поруч з конкретним index (сам Index не хешується).
+    Кеш: рядок запиту -> кортеж doc_id."""
+ 
+    @functools.lru_cache(maxsize=maxsize)
+    def cached(query):
+        return tuple(sorted(parse(query).evaluate(index)))
+ 
+    def matcher(query):
+        hits_before = cached.cache_info().hits
+        ids = cached(query)
+        status = "HIT" if cached.cache_info().hits > hits_before else "MISS"
+        log.debug("query cache %s: %r -> %d docs", status, query, len(ids))
+        return ids
+ 
+    matcher.cache_info = cached.cache_info
+    matcher.cache_clear = cached.cache_clear
+    return matcher
+ 
+ 
+def main():
+    parser = argparse.ArgumentParser(description="Ранжований пошук за індексом.")
+    parser.add_argument("index_file")
+    parser.add_argument("query")
+    parser.add_argument("--format", choices=["pickle", "json"], default="pickle")
+    parser.add_argument("--scorer", choices=["bm25", "tfidf"], default="bm25")
+    parser.add_argument("-k", type=int, default=10)
+    parser.add_argument("--repeat", type=int, default=1,
+                        help="виконати запит N разів (для демонстрації cache hit)")
+    parser.add_argument("--no-snippets", action="store_true")
     args = parser.parse_args()
-    
-    print(f"Завантажуємо індекс з {args.index_file}...")
-    if args.format == "pickle":
-        postings, doc_lengths, doc_meta = load_pickle(args.index_file)
-    else:
-        postings, doc_lengths, doc_meta = load_json(args.index_file)
-        
-    words = args.query.lower().split()
-    if not words:
-        print("Порожній запит.")
-        exit()
-        
-    print(f"Пошук: {' AND '.join(words)} (рушій: {args.engine})...")
-    start_time = time.time()
-    
-    current_result = postings.get(words[0], [])
-    
-    for word in words[1:]:
-        next_postings = postings.get(word, [])
-        if args.engine == "merge":
-            current_result = merge_and(current_result, next_postings)
-        else:
-            current_result = search_set_and(current_result, next_postings)
-            
-    search_time = time.time() - start_time
-    print(f"Знайдено документів: {len(current_result)} за {search_time:.6f} сек.")
-    
-    print("\nРезультати пошуку:")
-    for posting in current_result:
-        meta = doc_meta[posting.doc_id]
-        print(f"  [ID: {posting.doc_id}] {meta.title} (Файл: {meta.path}, tf={posting.tf})")
+ 
+    setup_logging()
+    scorer = BM25() if args.scorer == "bm25" else TfIdf()
+ 
+    try:
+        with open_index(args.index_file, args.format) as index:
+            print(index)
+            matcher = make_matcher(index)
+            terms = parse(args.query).terms()
+ 
+            for _ in range(args.repeat):
+                start = time.perf_counter()
+                results = search(index, args.query, scorer, args.k, matcher)
+                elapsed = time.perf_counter() - start
+ 
+            print("\nРЕЗУЛЬТАТИ ПОШУКУ")
+            print("-------------------------")
+            print("Запит:", args.query)
+            print("Scorer:", scorer)
+            print("Знайдено (top-k):", len(results))
+            print(f"Час останнього пошуку: {elapsed:.6f} сек.")
+            print("Кеш:", matcher.cache_info())
+ 
+            for rank, result in enumerate(results, 1):
+                print(f"\n{rank}. {result}")
+                if not args.no_snippets:
+                    print("   ", snippet_for(index.meta(result.doc_id), terms))
+    except ValueError as error:
+        parser.error(str(error))
+ 
+ 
+if __name__ == "__main__":
+    main()
