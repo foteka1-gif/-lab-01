@@ -1,0 +1,68 @@
+[
+    {
+        "relevant":  [
+                         "Vulf_Mara_[Angelskaya_saga#1]_Vozvraschenie_angelov",
+                         "Vulf_Mara_[Angelskaya_saga#2]_Gnev_angelov",
+                         "Vulf_Mara_[Angelskaya_saga#3]_Kniga_angelov (1)"
+                     ],
+        "query":  "ангелов"
+    },
+    {
+        "relevant":  [
+                         "Vulf_Mara_[Angelskaya_saga#1]_Vozvraschenie_angelov",
+                         "Vulf_Mara_[Angelskaya_saga#3]_Kniga_angelov (1)"
+                     ],
+        "query":  "земле"
+    },
+    {
+        "relevant":  [
+                         "Vulf_Mara_[Angelskaya_saga#2]_Gnev_angelov"
+                     ],
+        "query":  "небесного"
+    },
+    {
+        "relevant":  [
+                         "Vulf_Mara_[Angelskaya_saga#1]_Vozvraschenie_angelov",
+                         "Vulf_Mara_[Angelskaya_saga#3]_Kniga_angelov (1)"
+                     ],
+        "query":  "ангелов AND земле"
+    },
+    {
+        "relevant":  [
+                         "Vulf_Mara_[Angelskaya_saga#2]_Gnev_angelov"
+                     ],
+        "query":  "ангелов AND небесного"
+    },
+    {
+        "relevant":  [
+                         "Vulf_Mara_[Angelskaya_saga#1]_Vozvraschenie_angelov",
+                         "Vulf_Mara_[Angelskaya_saga#2]_Gnev_angelov",
+                         "Vulf_Mara_[Angelskaya_saga#3]_Kniga_angelov (1)"
+                     ],
+        "query":  "ангелов AND (небесного OR земле)"
+    },
+    {
+        "relevant":  [
+                         "Vulf_Mara_[Angelskaya_saga#1]_Vozvraschenie_angelov"
+                     ],
+        "query":  "\"священной земле\""
+    },
+    {
+        "relevant":  [
+                         "Vulf_Mara_[Angelskaya_saga#2]_Gnev_angelov"
+                     ],
+        "query":  "\"пятого небесного двора\""
+    },
+    {
+        "relevant":  [
+                         "Vulf_Mara_[Angelskaya_saga#3]_Kniga_angelov (1)"
+                     ],
+        "query":  "\"множество ангелов\""
+    },
+    {
+        "relevant":  [
+                         "Vulf_Mara_[Angelskaya_saga#3]_Kniga_angelov (1)"
+                     ],
+        "query":  "\"бывавших на земле\""
+    }
+]

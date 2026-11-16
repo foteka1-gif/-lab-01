@@ -1,23 +1,26 @@
 import logging
+from collections.abc import Iterator
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterator, NamedTuple
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+log = logging.getLogger(__name__)
 
-class Document(NamedTuple):
-    doc_id: str
-    path: Path
+
+@dataclass(frozen=True, slots=True)
+class Document:
+    doc_id: int
+    path: str
     text: str
 
-def iter_documents(root: Path) -> Iterator[Document]:
-    if not root.exists():
-        raise FileNotFoundError(f"Директорію {root} не знайдено.")
-    for path in root.rglob("*.txt"):
-        if path.is_file():
-            try:
-                text = path.read_text(encoding="utf-8", errors="replace")
-                yield Document(doc_id=path.stem, path=path, text=text)
-            except Exception as e:
-                logger.error(f"Помилка при зчитуванні файлу {path}: {e}")
-                continue
+
+def iter_documents(root: str | Path) -> Iterator[Document]:
+    root = Path(root)
+    doc_id = 0
+    for path in sorted(root.rglob("*.txt")):
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except OSError as error:
+            log.warning("Не вдалося прочитати %s: %s", path, error)
+            continue
+        yield Document(doc_id=doc_id, path=str(path), text=text)
+        doc_id += 1

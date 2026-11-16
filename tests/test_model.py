@@ -1,8 +1,9 @@
+import os
+import tempfile
 import unittest
 
-from findex.model import Index, open_index, save_index
+from findex.model import open_index, save_index
 from tests.common import make_index
-import tempfile, os
 
 
 class IndexTests(unittest.TestCase):
