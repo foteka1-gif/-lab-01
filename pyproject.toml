@@ -27,6 +27,7 @@ dev = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["tests", "."]
 addopts = "-ra"
 markers = [
     "slow: тест довший за секунду (пропустити: pytest -m 'not slow')",
