@@ -1,6 +1,10 @@
+
 # findex
 
-![CI](https://github.com)
+![CI](https://github.com/foteka1-gif/-lab-01/actions/workflows/ci.yml/badge.svg)
+
+
+
 
 Пошуковий рушій за інвертованим індексом із підтримкою булевих запитів, фразового пошуку, ранжування (BM25, TF-IDF) та CLI-інтерфейсу.
 
