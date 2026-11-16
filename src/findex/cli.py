@@ -252,7 +252,9 @@ def search_cmd(
     for hit in hits:
         score_str = f"{hit.result.score:.4f}"
         if snippets:
-            table.add_row(str(hit.rank), score_str, escape(hit.result.title), _highlight(hit.snippet))
+            table.add_row(
+                str(hit.rank), score_str, escape(hit.result.title), _highlight(hit.snippet)
+            )
         else:
             table.add_row(str(hit.rank), score_str, escape(hit.result.title))
 

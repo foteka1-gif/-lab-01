@@ -17,4 +17,3 @@ def test_larger_corpus_search_is_consistent() -> None:
     results = search(index, f"{vocab[1]} OR {vocab[2]} OR {vocab[3]}", BM25(), k=20)
 
     assert len(results) == 20
-

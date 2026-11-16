@@ -48,7 +48,9 @@ def runner() -> CliRunner:
 
 
 @pytest.fixture(scope="session")
-def index_file(tmp_path_factory: pytest.TempPathFactory, corpus_dir: Path, runner: CliRunner) -> Path:
+def index_file(
+    tmp_path_factory: pytest.TempPathFactory, corpus_dir: Path, runner: CliRunner
+) -> Path:
     path = tmp_path_factory.mktemp("idx") / "index.bin"
     result = runner.invoke(app, ["index", str(corpus_dir), "--out", str(path), "--positions"])
     assert result.exit_code == 0, result.output

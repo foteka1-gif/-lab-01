@@ -70,7 +70,9 @@ def test_search_no_results(runner: CliRunner, index_file: Path) -> None:
 
 
 def test_search_tfidf_option(runner: CliRunner, index_file: Path) -> None:
-    result = runner.invoke(app, ["search", str(index_file), "python", "--scorer", "tfidf", "-k", "2"])
+    result = runner.invoke(
+        app, ["search", str(index_file), "python", "--scorer", "tfidf", "-k", "2"]
+    )
     assert result.exit_code == 0, result.output
 
 
