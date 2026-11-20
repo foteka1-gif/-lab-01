@@ -98,8 +98,10 @@ def main() -> None:
     shared = 0
     run_threads(bump_unsafe_slow, N // 10)
     expected_slow = 2 * (N // 10)
-    print(f"1б) з викликом між читанням і записом: {shared:,} із {expected_slow:,}"
-          f"  (втрачено {expected_slow - shared:,})")
+    print(
+        f"1б) з викликом між читанням і записом: {shared:,} із {expected_slow:,}"
+        f"  (втрачено {expected_slow - shared:,})"
+    )
 
     shared = 0
     run_threads(bump_locked, N)

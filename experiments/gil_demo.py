@@ -1,7 +1,7 @@
 """«Prove it to yourself», дослід 1: чи прискорюють потоки і процеси чисту роботу процесора?
 
-    python experiments/gil_demo.py
-    uv run --python 3.13t python experiments/gil_demo.py     # без GIL
+python experiments/gil_demo.py
+uv run --python 3.13t python experiments/gil_demo.py     # без GIL
 """
 
 import sys
