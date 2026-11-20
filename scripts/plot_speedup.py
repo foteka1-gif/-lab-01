@@ -19,7 +19,9 @@ def label_for(result: dict[str, Any], executor: str) -> str:
 
 
 def print_table(results: list[dict[str, Any]]) -> None:
-    print("| Виконавець | Воркери | Wall, с (медіана) | CPU, с | Peak RSS, МБ | Merge, с | Прискорення |")
+    print(
+        "| Виконавець | Воркери | Wall, с (медіана) | CPU, с | Peak RSS, МБ | Merge, с | Прискорення |"
+    )
     print("|---|---|---|---|---|---|---|")
     for result in results:
         for row in result["rows"]:

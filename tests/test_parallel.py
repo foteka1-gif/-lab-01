@@ -39,7 +39,9 @@ def json_bytes(index: Index, tmp_path: Path, name: str) -> bytes:
 
 # --- M1: build_partial + merge ---------------------------------------------------
 @pytest.mark.parametrize("positions", [False, True])
-def test_one_partial_equals_lab4(many_docs_dir: Path, many_paths: list[Path], positions: bool) -> None:
+def test_one_partial_equals_lab4(
+    many_docs_dir: Path, many_paths: list[Path], positions: bool
+) -> None:
     """Послідовний варіант merge([build_partial(усі шляхи)]) == індекс із лаби 4."""
     lab4 = build_index(make_pipeline(many_docs_dir), positions=positions)
     assert merge([build_partial(many_paths, 0, positions)]) == lab4
@@ -99,7 +101,10 @@ def test_all_executors_give_byte_identical_json(many_paths: list[Path], tmp_path
     outputs: dict[str, bytes] = {}
     for name, workers in (("serial", 1), ("threads", 3), ("processes", 2)):
         report = build_index_parallel(
-            many_paths, workers=workers, executor=name, positions=True  # type: ignore[arg-type]
+            many_paths,
+            workers=workers,
+            executor=name,
+            positions=True,  # type: ignore[arg-type]
         )
         outputs[name] = json_bytes(report.built_index, tmp_path, name)
     assert outputs["serial"] == outputs["threads"] == outputs["processes"]
@@ -156,7 +161,9 @@ def test_cli_threads_equals_serial(runner: CliRunner, many_docs_dir: Path, tmp_p
 
 
 @pytest.mark.slow
-def test_cli_processes_equals_serial(runner: CliRunner, many_docs_dir: Path, tmp_path: Path) -> None:
+def test_cli_processes_equals_serial(
+    runner: CliRunner, many_docs_dir: Path, tmp_path: Path
+) -> None:
     serial, parallel = tmp_path / "serial.json", tmp_path / "processes.json"
     base = ["index", str(many_docs_dir), "--format", "json"]
     assert runner.invoke(app, [*base, "--out", str(serial)]).exit_code == 0

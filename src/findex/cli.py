@@ -321,9 +321,6 @@ def stats_cmd(
 
     console.print(summary)
 
-   
-
-
 
 if __name__ == "__main__":
     app()

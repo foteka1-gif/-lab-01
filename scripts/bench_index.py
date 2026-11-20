@@ -88,7 +88,9 @@ def main() -> None:
     parser.add_argument("corpus", type=Path)
     parser.add_argument("--workers", type=int, nargs="+", default=None)
     parser.add_argument(
-        "--executors", nargs="+", default=["serial", "threads", "processes"],
+        "--executors",
+        nargs="+",
+        default=["serial", "threads", "processes"],
         choices=["serial", "threads", "processes"],
     )
     parser.add_argument("--repeats", type=int, default=3)
@@ -121,18 +123,22 @@ def main() -> None:
     for executor, workers in configs:
         runs = []
         for run_number in range(args.repeats):
-            print(f"{executor:9} workers={workers:<3} run {run_number + 1}/{args.repeats}",
-                  file=sys.stderr)
+            print(
+                f"{executor:9} workers={workers:<3} run {run_number + 1}/{args.repeats}",
+                file=sys.stderr,
+            )
             runs.append(measure_in_child(args.corpus, executor, workers, args.positions))
-        rows.append({
-            "executor": executor,
-            "workers": workers,
-            "wall": statistics.median(r["wall"] for r in runs),
-            "cpu": statistics.median(r["cpu"] for r in runs),
-            "merge": statistics.median(r["merge"] for r in runs),
-            "rss_mb": statistics.median(r["rss"] for r in runs) / 1024 / 1024,
-            "runs": runs,
-        })
+        rows.append(
+            {
+                "executor": executor,
+                "workers": workers,
+                "wall": statistics.median(r["wall"] for r in runs),
+                "cpu": statistics.median(r["cpu"] for r in runs),
+                "merge": statistics.median(r["merge"] for r in runs),
+                "rss_mb": statistics.median(r["rss"] for r in runs) / 1024 / 1024,
+                "runs": runs,
+            }
+        )
 
     baseline = next((r["wall"] for r in rows if r["executor"] == "serial"), rows[0]["wall"])
     for row in rows:
