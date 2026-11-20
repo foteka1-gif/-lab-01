@@ -13,10 +13,14 @@ class Document:
     text: str
 
 
+def list_document_paths(root: str | Path) -> list[Path]:
+    """Усі .txt у папці, відсортовані. Позиція шляху в цьому списку і є його doc_id."""
+    return sorted(Path(root).rglob("*.txt"))
+
+
 def iter_documents(root: str | Path) -> Iterator[Document]:
-    root = Path(root)
     doc_id = 0
-    for path in sorted(root.rglob("*.txt")):
+    for path in list_document_paths(root):
         try:
             text = path.read_text(encoding="utf-8", errors="replace")
         except OSError as error:

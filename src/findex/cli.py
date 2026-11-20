@@ -9,8 +9,7 @@ import logging
 import pickle
 import re
 import sys
-import time
-from collections.abc import Generator, Iterable, Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from enum import StrEnum
 from pathlib import Path
@@ -24,18 +23,18 @@ from rich.progress import (
     MofNCompleteColumn,
     Progress,
     SpinnerColumn,
-    TaskID,
     TextColumn,
     TimeElapsedColumn,
 )
 from rich.table import Table
 from rich.text import Text
 
-from .index import PipelineItem, build_index, make_pipeline
+from .corpus import list_document_paths
 from .model import Index, IndexFormat, open_index, save_index
+from .parallel import ExecutorName, build_index_parallel
 from .query import parse
 from .scoring import ScorerName, make_scorer
-from .search import Matcher, SearchResult
+from .search import SearchResult
 from .search import search as run_search
 from .snippets import snippet_for
 
@@ -63,12 +62,26 @@ class ScorerChoice(StrEnum):
     tfidf = "tfidf"
 
 
+class ExecutorChoice(StrEnum):
+    serial = "serial"
+    threads = "threads"
+    processes = "processes"
+
+
 def _index_format(choice: FormatChoice) -> IndexFormat:
     return "json" if choice is FormatChoice.json else "pickle"
 
 
 def _scorer_name(choice: ScorerChoice) -> ScorerName:
     return "tfidf" if choice is ScorerChoice.tfidf else "bm25"
+
+
+def _executor_name(choice: ExecutorChoice) -> ExecutorName:
+    if choice is ExecutorChoice.threads:
+        return "threads"
+    if choice is ExecutorChoice.processes:
+        return "processes"
+    return "serial"
 
 
 # --- логування: налаштовується один раз, тут ---------------------------------
@@ -122,14 +135,6 @@ def _expected_errors(index_file: Path) -> Generator[None]:
 
 
 # --- findex index ------------------------------------------------------------
-def _advance(
-    items: Iterable[PipelineItem], progress: Progress, task: TaskID
-) -> Iterator[PipelineItem]:
-    for item in items:
-        progress.advance(task)
-        yield item
-
-
 @app.command("index")
 def index_cmd(
     corpus: Annotated[Path, typer.Argument(help="Папка з .txt документами.")],
@@ -145,19 +150,24 @@ def index_cmd(
     fmt: Annotated[FormatChoice, typer.Option("--format", help="Формат файлу.")] = (
         FormatChoice.pickle
     ),
+    workers: Annotated[
+        int, typer.Option("--workers", "-w", min=1, help="Скільки воркерів (потоків/процесів).")
+    ] = 1,
+    executor: Annotated[
+        ExecutorChoice, typer.Option("--executor", help="Чим будувати: serial, threads, processes.")
+    ] = ExecutorChoice.serial,  # ← після бенчмарку, якщо processes виграє, зміни на .processes
 ) -> None:
     """Побудувати індекс із папки документів."""
     if not corpus.is_dir():
         raise fail(f"Папка з документами не знайдена: {corpus}")
 
-    total = sum(1 for _ in corpus.rglob("*.txt"))
+    paths = list_document_paths(corpus)
     if limit is not None:
-        total = min(total, limit)
-    if total == 0:
+        paths = paths[:limit]
+    if not paths:
         raise fail(f"У папці {corpus} немає .txt файлів.")
 
     log.info("Папка документів: %s", corpus.resolve())
-    start = time.perf_counter()
     with Progress(
         SpinnerColumn(),
         TextColumn("Індексація"),
@@ -166,14 +176,30 @@ def index_cmd(
         TimeElapsedColumn(),
         console=err_console,
     ) as progress:
-        task = progress.add_task("index", total=total)
-        index = build_index(_advance(make_pipeline(corpus, limit), progress, task), positions)
-    log.info("Час побудови: %.3f с", time.perf_counter() - start)
+        task = progress.add_task("index", total=len(paths))
+        # Помилку воркера навмисно НЕ перехоплюємо: за умовою лаби збірка падає зі стеком воркера.
+        report = build_index_parallel(
+            paths,
+            workers=workers,
+            executor=_executor_name(executor),
+            positions=positions,
+            progress=lambda done: progress.advance(task, done),
+        )
+    log.info(
+        "executor=%s workers=%d wall=%.3f с cpu=%.3f с merge=%.3f с",
+        executor.value,
+        workers,
+        report.wall_seconds,
+        report.cpu_seconds,
+        report.merge_seconds,
+    )
 
     out.parent.mkdir(parents=True, exist_ok=True)
-    save_index(index, out, _index_format(fmt))
-    log.info("Позиції збережено: %s", index.has_positions)
-    console.print(f"Індекс збережено: [bold]{escape(str(out))}[/bold] — {escape(repr(index))}")
+    save_index(report.built_index, out, _index_format(fmt))
+    log.info("Позиції збережено: %s", report.built_index.has_positions)
+    console.print(
+        f"Індекс збережено: [bold]{escape(str(out))}[/bold] — {escape(repr(report.built_index))}"
+    )
 
 
 # --- findex search -----------------------------------------------------------
@@ -217,74 +243,87 @@ def search_cmd(
 ) -> None:
     """Ранжований пошук за запитом."""
     with _expected_errors(index_file), open_index(index_file, _index_format(fmt)) as index:
-        terms = parse(query).terms()
-        results = run_search(index, query, make_scorer(_scorer_name(scorer)), k, Matcher(index))
+        score_fn = make_scorer(_scorer_name(scorer))
+        results = run_search(index, query, scorer=score_fn, k=k)
+        terms = list(dict.fromkeys(parse(query).terms()))
         hits = [
-            Hit(rank, r, _safe_snippet(index, r.doc_id, terms) if snippets else "")
-            for rank, r in enumerate(results, 1)
+            Hit(rank, res, _safe_snippet(index, res.doc_id, terms) if snippets else "")
+            for rank, res in enumerate(results, start=1)
         ]
-        log.info("Знайдено: %d", len(hits))
+
+    log.info("Запит %r -> %d результатів", query, len(hits))
 
     if as_json:
         for hit in hits:
-            snippet = hit.snippet.replace(_MARK_START, "**").replace(_MARK_END, "**")
-            row = {
+            payload = {
                 "rank": hit.rank,
-                "score": round(hit.result.score, 6),
                 "doc_id": hit.result.doc_id,
                 "title": hit.result.title,
-                "snippet": snippet,
+                "score": round(hit.result.score, 6),
+                "snippet": re.sub(f"[{_MARK_START}{_MARK_END}]", "**", hit.snippet),
             }
-            typer.echo(json.dumps(row, ensure_ascii=False))
+            sys.stdout.write(json.dumps(payload, ensure_ascii=False) + "\n")
         return
 
     if not hits:
-        console.print(f"Нічого не знайдено для запиту: [bold]{escape(query)}[/bold]")
+        console.print("Нічого не знайдено.")
         return
 
-    table = Table(title=f"{query} ({_scorer_name(scorer)})")
+    table = Table(title=f"Результати для {query!r} ({scorer.value})")
     table.add_column("#", justify="right", style="cyan", no_wrap=True)
-    table.add_column("Score", justify="right", style="green", no_wrap=True)
+    table.add_column("Оцінка", justify="right", style="green", no_wrap=True)
     table.add_column("Документ", style="bold")
     if snippets:
-        table.add_column("Сніпет")
+        table.add_column("Фрагмент")
 
     for hit in hits:
-        score_str = f"{hit.result.score:.4f}"
+        row: list[str | Text] = [
+            str(hit.rank),
+            f"{hit.result.score:.4f}",
+            escape(hit.result.title),
+        ]
         if snippets:
-            table.add_row(
-                str(hit.rank), score_str, escape(hit.result.title), _highlight(hit.snippet)
-            )
-        else:
-            table.add_row(str(hit.rank), score_str, escape(hit.result.title))
+            row.append(_highlight(hit.snippet))
+        table.add_row(*row)
 
     console.print(table)
 
 
-# --- findex stats ------------------------------------------------------------
 @app.command("stats")
 def stats_cmd(
     index_file: Annotated[Path, typer.Argument(help="Файл індексу.")],
-    top: Annotated[int, typer.Option("--top", "-n", min=1, help="Топ найчастіших термів.")] = 10,
+    top: Annotated[int, typer.Option("--top", min=1, help="Скільки частих термів показати.")] = 10,
     fmt: Annotated[FormatChoice, typer.Option("--format", help="Формат файлу.")] = (
         FormatChoice.pickle
     ),
 ) -> None:
     """Статистика індексу."""
     with _expected_errors(index_file), open_index(index_file, _index_format(fmt)) as index:
-        total_postings = sum(len(plist) for plist in index.values())
-        pairs = [(-len(plist), term) for term, plist in index.items()]
-        pairs.sort()
-        top_str = ", ".join(f"{term} ({-neg_df})" for neg_df, term in pairs[:top])
-
-        summary = Table(title=f"Статистика індексу: {index_file.name}")
-        summary.add_column("Метрика", style="cyan")
-        summary.add_column("Значення", justify="right", style="bold")
+        total_tokens = sum(index.doc_length(doc_id) for doc_id in index.doc_ids)
+        summary = Table(title=f"Статистика: {index_file}")
+        summary.add_column("Показник", style="bold")
+        summary.add_column("Значення", justify="right")
         summary.add_row("Документів", str(index.num_docs))
         summary.add_row("Унікальних термів", str(len(index)))
-        summary.add_row("Усього постінгів", str(total_postings))
+        summary.add_row("Усього токенів", str(total_tokens))
         summary.add_row("Середня довжина документа", f"{index.avg_doc_length:.1f}")
         summary.add_row("Позиції збережено", "так" if index.has_positions else "ні")
+        summary.add_row("Розмір файлу", f"{index_file.stat().st_size:,} байт")
+
+        top_terms = sorted(
+            ((term, index.df(term)) for term in index),
+            key=lambda item: (-item[1], item[0]),
+        )[:top]
+
+        top_str = ", ".join(f"{term} ({df})" for term, df in top_terms)
         if top_str:
-            summary.add_row(f"Топ-{min(top, len(pairs))} термів", top_str)
-        console.print(summary)
+            summary.add_row("Часті терми", escape(top_str))
+
+    console.print(summary)
+
+   
+
+
+
+if __name__ == "__main__":
+    app()
