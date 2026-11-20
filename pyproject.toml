@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "findex"
-version = "0.4.0"
+version = "0.5.0"
 description = "Пошуковий рушій: інвертований індекс, булеві запити, BM25/TF-IDF"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -23,11 +23,12 @@ dev = [
     "hypothesis>=6",
     "pyright>=1.1.380",
     "ruff>=0.6",
+    "matplotlib>=3.8",
+    "psutil>=5.9",
 ]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["tests", "."]
 addopts = "-ra"
 markers = [
     "slow: тест довший за секунду (пропустити: pytest -m 'not slow')",
@@ -45,8 +46,11 @@ exclude_lines = [
 
 [tool.pyright]
 include = ["src"]
+exclude = ["scripts"]
 typeCheckingMode = "strict"
-pythonVersion = "3.12"
+pythonVersion = "3.13"
+
+
 
 [tool.ruff]
 line-length = 100
