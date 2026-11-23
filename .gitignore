@@ -7,4 +7,9 @@ dist/
 .ruff_cache/
 .hypothesis/
 index.bin
+data/crawled.jsonl
+data/crawled.bin
+data/crawl.log
+pages.jsonl
+crawl.log
 
