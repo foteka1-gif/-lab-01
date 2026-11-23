@@ -11,6 +11,7 @@ requires-python = ">=3.12"
 dependencies = [
     "typer>=0.12",
     "rich>=13",
+    "httpx>=0.28.1",
 ]
 
 [project.scripts]
@@ -28,7 +29,6 @@ dev = [
 ]
 
 [tool.pytest.ini_options]
-pythonpath = ["tests"]
 testpaths = ["tests"]
 addopts = "-ra"
 markers = [
