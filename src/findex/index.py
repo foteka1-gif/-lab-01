@@ -83,7 +83,7 @@ def make_pipeline(root: str | Path, limit: int | None = None) -> Iterator[Pipeli
     if limit is not None:
         docs = islice(docs, limit)
     for doc in docs:
-        title = Path(doc.path).stem
+        title = doc.title or Path(doc.path).stem
         yield doc.doc_id, doc.path, title, tokenize(doc.text)
 
 

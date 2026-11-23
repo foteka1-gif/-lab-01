@@ -28,7 +28,6 @@ def test_canonicalize_url_normalizes_scheme_host_fragment_slash_and_query() -> N
     assert u1 == expected
     assert u1 == u2
 
-
     assert canonicalize_url("http" + "://example.com") == "http" + "://example.com/"
     assert canonicalize_url("mailto:test@example.com") is None
     assert canonicalize_url("javascript:void(0)") is None

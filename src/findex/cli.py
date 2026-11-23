@@ -1,9 +1,10 @@
-"""Командний рядок findex: index / search / stats.
+"""Командний рядок findex: crawl / index / search / stats.
 
 Правила: дані -> stdout, діагностика (логи, помилки, прогрес) -> stderr.
 Очікувана помилка = один зрозумілий рядок і ненульовий код виходу, без стека.
 """
 
+import asyncio
 import json
 import logging
 import pickle
@@ -17,6 +18,7 @@ from typing import Annotated, NamedTuple
 
 import typer
 from rich.console import Console
+from rich.live import Live
 from rich.markup import escape
 from rich.progress import (
     BarColumn,
@@ -29,7 +31,10 @@ from rich.progress import (
 from rich.table import Table
 from rich.text import Text
 
-from .corpus import list_document_paths
+from .corpus import list_document_paths, write_jsonl_record
+from .crawler import CrawlStats, crawl
+from .fetch import DEFAULT_USER_AGENT
+from .index import build_index, make_pipeline
 from .model import Index, IndexFormat, open_index, save_index
 from .parallel import ExecutorName, build_index_parallel
 from .query import parse
@@ -47,7 +52,7 @@ err_console = Console(stderr=True)  # stderr: помилки і прогрес
 _MARK_START, _MARK_END = "\x02", "\x03"
 
 app = typer.Typer(
-    help="findex — пошук за інвертованим індексом.",
+    help="findex — веб-краулер та пошук за інвертованим індексом.",
     no_args_is_help=True,
 )
 
@@ -134,10 +139,155 @@ def _expected_errors(index_file: Path) -> Generator[None]:
         raise fail(str(error)) from None
 
 
+# --- findex crawl ------------------------------------------------------------
+def _crawl_status_table(stats: CrawlStats, max_pages: int) -> Table:
+    table = Table(title="Краулер findex", show_header=True, header_style="bold cyan")
+    table.add_column("Зібрано", justify="right")
+    table.add_column("Стор./с", justify="right")
+    table.add_column("У роботі", justify="right")
+    table.add_column("Помилки", justify="right")
+    table.add_column("Черга", justify="right")
+    table.add_row(
+        f"{stats.fetched}/{max_pages}",
+        f"{stats.pages_per_second:.2f}",
+        str(stats.in_flight),
+        str(stats.errors),
+        str(stats.queued),
+    )
+    return table
+
+
+async def _run_crawl_to_files(
+    start_url: str,
+    *,
+    out_path: Path,
+    log_path: Path,
+    max_pages: int,
+    concurrency: int,
+    per_host: int,
+    delay: float,
+    timeout: float,
+    same_domain: bool,
+    respect_robots: bool,
+    user_agent: str,
+) -> CrawlStats:
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+
+    last_stats = CrawlStats()
+    with (
+        out_path.open("w", encoding="utf-8") as jsonl_out,
+        log_path.open("w", encoding="utf-8") as log_out,
+        Live(
+            _crawl_status_table(last_stats, max_pages),
+            console=err_console,
+            refresh_per_second=8,
+        ) as live,
+    ):
+        async for page in crawl(
+            start_url,
+            max_pages=max_pages,
+            concurrency=concurrency,
+            per_host_concurrency=per_host,
+            min_delay_per_host=delay,
+            timeout_seconds=timeout,
+            same_domain_only=same_domain,
+            respect_robots=respect_robots,
+            user_agent=user_agent,
+        ):
+            last_stats = page.stats
+            if page.error is None:
+                write_jsonl_record(
+                    jsonl_out,
+                    url=page.final_url,
+                    title=page.title,
+                    text=page.text,
+                    status=page.status,
+                )
+                log_out.write(
+                    f"OK\tstatus={page.status}\tattempts={page.attempts}\t"
+                    f"bytes={page.num_bytes}\ttime={page.elapsed:.3f}s\t{page.final_url}\n"
+                )
+            else:
+                log_out.write(
+                    f"ERR\tstatus={page.status}\tattempts={page.attempts}\t"
+                    f"error={page.error}\ttime={page.elapsed:.3f}s\t{page.url}\n"
+                )
+            log_out.flush()
+            live.update(_crawl_status_table(last_stats, max_pages))
+
+    return last_stats
+
+
+# --- findex index ------------------------------------------------------------
+@app.command("crawl")
+def crawl_cmd(
+    start_url: Annotated[str, typer.Argument(help="Початковий URL для обходу.")],
+    out: Annotated[Path, typer.Option("--out", "-o", help="Куди писати JSONL.")] = Path(
+        "pages.jsonl"
+    ),
+    log_file: Annotated[Path, typer.Option("--log-file", help="Файл журналу статусів URL.")] = Path(
+        "crawl.log"
+    ),
+    max_pages: Annotated[int, typer.Option("--max-pages", min=1, help="Максимум сторінок.")] = 50,
+    concurrency: Annotated[
+        int, typer.Option("--concurrency", "-c", min=1, help="Максимум одночасних запитів.")
+    ] = 5,
+    per_host: Annotated[
+        int, typer.Option("--per-host", min=1, help="Одночасних запитів на один хост.")
+    ] = 2,
+    delay: Annotated[
+        float, typer.Option("--delay", min=0.0, help="Мінімальна пауза (с) між запитами на хост.")
+    ] = 0.1,
+    timeout: Annotated[
+        float, typer.Option("--timeout", min=0.1, help="Таймаут одного запиту в секундах.")
+    ] = 10.0,
+    same_domain: Annotated[
+        bool,
+        typer.Option("--same-domain/--any-domain", help="Залишатися в межах стартового домену."),
+    ] = True,
+    respect_robots: Annotated[
+        bool, typer.Option("--robots/--no-robots", help="Враховувати robots.txt.")
+    ] = True,
+    user_agent: Annotated[
+        str, typer.Option("--user-agent", help="Заголовок User-Agent.")
+    ] = DEFAULT_USER_AGENT,
+    debug_asyncio: Annotated[
+        bool, typer.Option("--debug-asyncio", help="Увімкнути debug-режим циклу подій asyncio.")
+    ] = False,
+) -> None:
+    """Асинхронно обійти вебсторінки та зберегти їх у JSONL."""
+    try:
+        stats = asyncio.run(
+            _run_crawl_to_files(
+                start_url,
+                out_path=out,
+                log_path=log_file,
+                max_pages=max_pages,
+                concurrency=concurrency,
+                per_host=per_host,
+                delay=delay,
+                timeout=timeout,
+                same_domain=same_domain,
+                respect_robots=respect_robots,
+                user_agent=user_agent,
+            ),
+            debug=debug_asyncio,
+        )
+    except ValueError as error:
+        raise fail(str(error)) from None
+
+    console.print(
+        f"Зібрано сторінок: [bold]{stats.fetched}[/bold] "
+        f"(помилок: {stats.errors}, пропущено: {stats.skipped}, "
+        f"швидкість: {stats.pages_per_second:.2f} стор./с) -> [bold]{escape(str(out))}[/bold]"
+    )
+
+
 # --- findex index ------------------------------------------------------------
 @app.command("index")
 def index_cmd(
-    corpus: Annotated[Path, typer.Argument(help="Папка з .txt документами.")],
+    corpus: Annotated[Path, typer.Argument(help="Папка з .txt документами або .jsonl файл.")],
     out: Annotated[Path, typer.Option("--out", "-o", help="Куди зберегти індекс.")] = Path(
         "index.bin"
     ),
@@ -155,50 +305,55 @@ def index_cmd(
     ] = 1,
     executor: Annotated[
         ExecutorChoice, typer.Option("--executor", help="Чим будувати: serial, threads, processes.")
-    ] = ExecutorChoice.serial,  # ← після бенчмарку, якщо processes виграє, зміни на .processes
+    ] = ExecutorChoice.serial,
 ) -> None:
-    """Побудувати індекс із папки документів."""
-    if not corpus.is_dir():
-        raise fail(f"Папка з документами не знайдена: {corpus}")
+    """Побудувати індекс із папки .txt документів або з .jsonl файлу краулера."""
+    if corpus.is_file():
+        log.info("JSONL-файл документів: %s", corpus.resolve())
+        built_index = build_index(make_pipeline(corpus, limit=limit), positions=positions)
+        if built_index.num_docs == 0:
+            raise fail(f"У файлі {corpus} немає документів для індексації.")
+    elif corpus.is_dir():
+        paths = list_document_paths(corpus)
+        if limit is not None:
+            paths = paths[:limit]
+        if not paths:
+            raise fail(f"У папці {corpus} немає .txt файлів.")
 
-    paths = list_document_paths(corpus)
-    if limit is not None:
-        paths = paths[:limit]
-    if not paths:
-        raise fail(f"У папці {corpus} немає .txt файлів.")
-
-    log.info("Папка документів: %s", corpus.resolve())
-    with Progress(
-        SpinnerColumn(),
-        TextColumn("Індексація"),
-        BarColumn(),
-        MofNCompleteColumn(),
-        TimeElapsedColumn(),
-        console=err_console,
-    ) as progress:
-        task = progress.add_task("index", total=len(paths))
-        # Помилку воркера навмисно НЕ перехоплюємо: за умовою лаби збірка падає зі стеком воркера.
-        report = build_index_parallel(
-            paths,
-            workers=workers,
-            executor=_executor_name(executor),
-            positions=positions,
-            progress=lambda done: progress.advance(task, done),
+        log.info("Папка документів: %s", corpus.resolve())
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("Індексація"),
+            BarColumn(),
+            MofNCompleteColumn(),
+            TimeElapsedColumn(),
+            console=err_console,
+        ) as progress:
+            task = progress.add_task("index", total=len(paths))
+            report = build_index_parallel(
+                paths,
+                workers=workers,
+                executor=_executor_name(executor),
+                positions=positions,
+                progress=lambda done: progress.advance(task, done),
+            )
+        log.info(
+            "executor=%s workers=%d wall=%.3f с cpu=%.3f с merge=%.3f с",
+            executor.value,
+            workers,
+            report.wall_seconds,
+            report.cpu_seconds,
+            report.merge_seconds,
         )
-    log.info(
-        "executor=%s workers=%d wall=%.3f с cpu=%.3f с merge=%.3f с",
-        executor.value,
-        workers,
-        report.wall_seconds,
-        report.cpu_seconds,
-        report.merge_seconds,
-    )
+        built_index = report.built_index
+    else:
+        raise fail(f"Джерело документів не знайдено: {corpus}")
 
     out.parent.mkdir(parents=True, exist_ok=True)
-    save_index(report.built_index, out, _index_format(fmt))
-    log.info("Позиції збережено: %s", report.built_index.has_positions)
+    save_index(built_index, out, _index_format(fmt))
+    log.info("Позиції збережено: %s", built_index.has_positions)
     console.print(
-        f"Індекс збережено: [bold]{escape(str(out))}[/bold] — {escape(repr(report.built_index))}"
+        f"Індекс збережено: [bold]{escape(str(out))}[/bold] — {escape(repr(built_index))}"
     )
 
 
@@ -212,7 +367,7 @@ class Hit(NamedTuple):
 def _safe_snippet(index: Index, doc_id: int, terms: list[str]) -> str:
     try:
         return snippet_for(index.meta(doc_id), terms, mark=(_MARK_START, _MARK_END))
-    except OSError as error:  # документ перенесли/видалили після індексації
+    except OSError as error:
         log.warning("Сніпет недоступний для doc_id=%d: %s", doc_id, error)
         return ""
 
@@ -289,6 +444,7 @@ def search_cmd(
     console.print(table)
 
 
+# --- findex stats ------------------------------------------------------------
 @app.command("stats")
 def stats_cmd(
     index_file: Annotated[Path, typer.Argument(help="Файл індексу.")],
