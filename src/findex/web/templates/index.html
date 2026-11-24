@@ -1,9 +1,9 @@
-<!doctype html>
+м<!doctype html>
 <html lang="uk">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>findex — Пошук за інвертованим індексом</title>
+  <title>findex v1.0.0 — Пошуковий рушій</title>
   <style>
     :root {
       --bg: #f8fafc;
@@ -23,7 +23,7 @@
       color: var(--text);
       line-height: 1.55;
     }
-    .container { max-width: 880px; margin: 0 auto; padding: 2rem 1.25rem 4rem; }
+    .container { max-width: 900px; margin: 0 auto; padding: 2rem 1.25rem 4rem; }
     header { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 1.5rem; flex-wrap: wrap; gap: 0.5rem; }
     header h1 { margin: 0; font-size: 1.75rem; letter-spacing: -0.02em; }
     header h1 a { text-decoration: none; color: inherit; }
@@ -38,7 +38,7 @@
     }
     .search-row { display: flex; gap: 0.6rem; flex-wrap: wrap; }
     input[type="text"] {
-      flex: 1 1 320px;
+      flex: 1 1 280px;
       padding: 0.65rem 0.9rem;
       font-size: 1rem;
       border: 1px solid var(--border);
@@ -47,8 +47,8 @@
     }
     input[type="text"]:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15); }
     select, button {
-      padding: 0.65rem 0.95rem;
-      font-size: 0.95rem;
+      padding: 0.65rem 0.85rem;
+      font-size: 0.92rem;
       border-radius: 8px;
       border: 1px solid var(--border);
       background: var(--card);
@@ -98,7 +98,7 @@
 <body>
   <div class="container">
     <header>
-      <h1><a href="/">findex</a></h1>
+      <h1><a href="/">findex <small style="font-size:0.95rem;color:var(--muted);font-weight:500;">v1.0.0</small></a></h1>
       {% if index_ready %}
         <span class="badge">Документів: {{ num_docs }} · Термів: {{ num_terms }}</span>
       {% else %}
@@ -108,7 +108,12 @@
 
     <form class="search-box" method="get" action="/">
       <div class="search-row">
-        <input type="text" name="q" value="{{ q }}" placeholder='Введіть запит, наприклад: ангел AND "ворота в рай" NOT хаос' autofocus />
+        <input type="text" name="q" value="{{ q }}" placeholder='Введіть запит, наприклад: ангел AND "ворота в рай" або опис змісту' autofocus />
+        <select name="mode" aria-label="Режим пошуку">
+          <option value="lexical" {% if mode == "lexical" %}selected{% endif %}>Лексичний</option>
+          <option value="semantic" {% if mode == "semantic" %}selected{% endif %}>Семантичний</option>
+          <option value="hybrid" {% if mode == "hybrid" %}selected{% endif %}>Гібридний (RRF)</option>
+        </select>
         <select name="scorer" aria-label="Ранжування">
           <option value="bm25" {% if scorer == "bm25" %}selected{% endif %}>BM25</option>
           <option value="tfidf" {% if scorer == "tfidf" %}selected{% endif %}>TF-IDF</option>
@@ -120,7 +125,11 @@
         </select>
         <button class="primary" type="submit">Знайти</button>
       </div>
-      <div class="hint">Підтримуються оператори <code>AND</code>, <code>OR</code>, <code>NOT</code>, дужки <code>(...)</code> та точні фрази в лапках <code>"..."</code>.</div>
+      <div class="hint">
+        <strong>Лексичний:</strong> <code>AND</code>, <code>OR</code>, <code>NOT</code>, <code>"фраза"</code> ·
+        <strong>Семантичний:</strong> пошук за змістом (.npy) ·
+        <strong>Гібридний:</strong> злиття BM25 + семантики через RRF.
+      </div>
     </form>
 
     {% if error_msg %}
@@ -131,7 +140,7 @@
       <section class="doc-viewer">
         <div class="hit-top">
           <strong>{{ viewed_doc.title }}</strong>
-          <a class="page-link" href="/?q={{ q | urlencode }}&scorer={{ scorer }}&k={{ k }}&page={{ page }}">Закрити</a>
+          <a class="page-link" href="/?q={{ q | urlencode }}&mode={{ mode }}&scorer={{ scorer }}&k={{ k }}&page={{ page }}">Закрити</a>
         </div>
         <div class="summary">ID: {{ viewed_doc.doc_id }} · Токенів: {{ viewed_doc.length }} · Шлях: {{ viewed_doc.path }}</div>
         {% if viewed_doc.text %}
@@ -144,7 +153,7 @@
 
     {% if search_data %}
       <div class="summary">
-        Знайдено документів: <strong>{{ search_data.total_hits }}</strong> за {{ search_data.elapsed_ms }} мс
+        Режим: <strong>{{ search_data.mode }}</strong> · Знайдено документів: <strong>{{ search_data.total_hits }}</strong> за {{ search_data.elapsed_ms }} мс
         (сторінка {{ search_data.page }} із {{ search_data.total_pages or 1 }})
       </div>
 
@@ -152,7 +161,7 @@
         {% for hit in highlighted_hits %}
           <article class="hit">
             <div class="hit-top">
-              <a class="hit-title" href="/?q={{ q | urlencode }}&scorer={{ scorer }}&k={{ k }}&page={{ page }}&doc_id={{ hit.doc_id }}">
+              <a class="hit-title" href="/?q={{ q | urlencode }}&mode={{ mode }}&scorer={{ scorer }}&k={{ k }}&page={{ page }}&doc_id={{ hit.doc_id }}">
                 {{ hit.rank }}. {{ hit.title }}
               </a>
               <span class="hit-score">score: {{ "%.4f"|format(hit.score) }}</span>
@@ -166,11 +175,11 @@
         {% if search_data.total_pages > 1 %}
           <nav class="pagination">
             {% if search_data.page > 1 %}
-              <a class="page-link" href="/?q={{ q | urlencode }}&scorer={{ scorer }}&k={{ k }}&page={{ search_data.page - 1 }}">← Попередня</a>
+              <a class="page-link" href="/?q={{ q | urlencode }}&mode={{ mode }}&scorer={{ scorer }}&k={{ k }}&page={{ search_data.page - 1 }}">← Попередня</a>
             {% endif %}
             <span class="summary" style="margin:0;">Сторінка {{ search_data.page }} / {{ search_data.total_pages }}</span>
             {% if search_data.page < search_data.total_pages %}
-              <a class="page-link" href="/?q={{ q | urlencode }}&scorer={{ scorer }}&k={{ k }}&page={{ search_data.page + 1 }}">Наступна →</a>
+              <a class="page-link" href="/?q={{ q | urlencode }}&mode={{ mode }}&scorer={{ scorer }}&k={{ k }}&page={{ search_data.page + 1 }}">Наступна →</a>
             {% endif %}
           </nav>
         {% endif %}
