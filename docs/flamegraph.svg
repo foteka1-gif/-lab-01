@@ -1,0 +1,36 @@
+<svg xmlns="http://w3.org" width="960" height="610" viewBox="0 0 960 610" style="background:#ffffff;font-family:system-ui,sans-serif;">
+<text x="20" y="30" font-size="16" font-weight="700" fill="#0f172a">Flame Graph (tottime): findex index (build_index)</text>
+<rect x="20" y="44" width="700" height="26" rx="4" fill="#ef4444" opacity="0.88" />
+<text x="28" y="61" font-size="12" font-family="monospace" fill="#0f172a">index.py:35 (_add_document) — tottime: 349.89 ms, cumtime: 1009.61 ms (4 calls)</text>
+<rect x="20" y="76" width="452" height="26" rx="4" fill="#f97316" opacity="0.88" />
+<text x="28" y="93" font-size="12" font-family="monospace" fill="#0f172a">tokenize.py:8 (tokenize) — tottime: 225.95 ms, cumtime: 429.30 ms (356385 calls)</text>
+<rect x="20" y="108" width="232" height="26" rx="4" fill="#eab308" opacity="0.88" />
+<text x="28" y="125" font-size="12" font-family="monospace" fill="#0f172a">~:0 (&lt;method &#x27;setdefault&#x27; of &#x27;dict&#x27; objects&gt;) — tottime: 116.30 ms, cumtime: 116.30 ms (396906 calls)</text>
+<rect x="20" y="140" width="186" height="26" rx="4" fill="#22c55e" opacity="0.88" />
+<text x="28" y="157" font-size="12" font-family="monospace" fill="#0f172a">~:0 (&lt;built-in method unicodedata.normalize&gt;) — tottime: 93.40 ms, cumtime: 93.40 ms (4 calls)</text>
+<rect x="20" y="172" width="186" height="26" rx="4" fill="#3b82f6" opacity="0.88" />
+<text x="28" y="189" font-size="12" font-family="monospace" fill="#0f172a">~:0 (&lt;method &#x27;group&#x27; of &#x27;re.Match&#x27; objects&gt;) — tottime: 93.31 ms, cumtime: 93.31 ms (356381 calls)</text>
+<rect x="20" y="204" width="142" height="26" rx="4" fill="#8b5cf6" opacity="0.88" />
+<text x="28" y="221" font-size="12" font-family="monospace" fill="#0f172a">~:0 (&lt;method &#x27;append&#x27; of &#x27;list&#x27; objects&gt;) — tottime: 71.12 ms, cumtime: 71.12 ms (396964 calls)</text>
+<rect x="20" y="236" width="33" height="26" rx="4" fill="#ef4444" opacity="0.88" />
+<text x="28" y="253" font-size="12" font-family="monospace" fill="#0f172a">~:0 (&lt;method &#x27;casefold&#x27; of &#x27;str&#x27; objects&gt;) — tottime: 16.61 ms, cumtime: 16.61 ms (4 calls)</text>
+<rect x="20" y="268" width="24" height="26" rx="4" fill="#f97316" opacity="0.88" />
+<text x="28" y="285" font-size="12" font-family="monospace" fill="#0f172a">~:0 (&lt;built-in method _codecs.utf_8_decode&gt;) — tottime: 12.12 ms, cumtime: 12.12 ms (4 calls)</text>
+<text x="20" y="320" font-size="16" font-weight="700" fill="#0f172a">Flame Graph (tottime): findex search (3 terms, 200 runs)</text>
+<rect x="20" y="334" width="700" height="26" rx="4" fill="#ef4444" opacity="0.88" />
+<text x="28" y="351" font-size="12" font-family="monospace" fill="#0f172a">scoring.py:37 (__call__) — tottime: 3.94 ms, cumtime: 7.55 ms (1800 calls)</text>
+<rect x="20" y="366" width="693" height="26" rx="4" fill="#f97316" opacity="0.88" />
+<text x="28" y="383" font-size="12" font-family="monospace" fill="#0f172a">search.py:66 (search) — tottime: 3.90 ms, cumtime: 29.29 ms (200 calls)</text>
+<rect x="20" y="398" width="497" height="26" rx="4" fill="#eab308" opacity="0.88" />
+<text x="28" y="415" font-size="12" font-family="monospace" fill="#0f172a">query.py:150 (lex) — tottime: 2.80 ms, cumtime: 7.48 ms (200 calls)</text>
+<rect x="20" y="430" width="264" height="26" rx="4" fill="#22c55e" opacity="0.88" />
+<text x="28" y="447" font-size="12" font-family="monospace" fill="#0f172a">tokenize.py:8 (tokenize) — tottime: 1.49 ms, cumtime: 2.54 ms (1200 calls)</text>
+<rect x="20" y="462" width="209" height="26" rx="4" fill="#3b82f6" opacity="0.88" />
+<text x="28" y="479" font-size="12" font-family="monospace" fill="#0f172a">model.py:85 (df) — tottime: 1.18 ms, cumtime: 1.95 ms (1800 calls)</text>
+<rect x="20" y="494" width="175" height="26" rx="4" fill="#8b5cf6" opacity="0.88" />
+<text x="28" y="511" font-size="12" font-family="monospace" fill="#0f172a">query.py:181 (peek) — tottime: 0.99 ms, cumtime: 1.33 ms (2400 calls)</text>
+<rect x="20" y="526" width="169" height="26" rx="4" fill="#ef4444" opacity="0.88" />
+<text x="28" y="543" font-size="12" font-family="monospace" fill="#0f172a">~:0 (&lt;built-in method builtins.len&gt;) — tottime: 0.96 ms, cumtime: 0.96 ms (6401 calls)</text>
+<rect x="20" y="558" width="167" height="26" rx="4" fill="#f97316" opacity="0.88" />
+<text x="28" y="575" font-size="12" font-family="monospace" fill="#0f172a">query.py:189 (or_expr) — tottime: 0.94 ms, cumtime: 5.10 ms (200 calls)</text>
+</svg>
