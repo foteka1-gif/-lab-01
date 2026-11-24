@@ -5,10 +5,10 @@ ENV UV_COMPILE_BYTECODE=1
 ENV UV_LINK_MODE=copy
 
 COPY pyproject.toml uv.lock README.md ./
-RUN uv sync --frozen --no-dev --no-install-project
+RUN uv sync --no-dev --no-install-project
 
 COPY src ./src
-RUN uv sync --frozen --no-dev --no-editable
+RUN uv sync --no-dev --no-editable
 
 FROM python:3.13-slim-bookworm AS runtime
 
@@ -25,8 +25,10 @@ ENV PYTHONUNBUFFERED=1
 ENV HOST="0.0.0.0"
 ENV PORT="8000"
 ENV INDEX_PATH="/app/data/index.bin"
+ENV SEMANTIC_PATH="/app/data/index.npy"
 
 RUN findex index /app/data -o /app/data/index.bin --positions \
+    && findex embed /app/data/index.bin -o /app/data/index.npy \
     && chown -R appuser:appgroup /app
 
 USER appuser
