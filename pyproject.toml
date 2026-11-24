@@ -58,12 +58,16 @@ pythonVersion = "3.13"
 
 [tool.ruff]
 line-length = 100
-target-version = "py312"
+target-version = "py313"
+src = ["src"]
 
 [tool.ruff.lint]
-select = ["E", "F", "UP", "B"]
-ignore = ["E501", "I001"]
+select = ["E", "F", "I", "UP", "B"]
+ignore = ["E501"]
+
 [tool.ruff.lint.isort]
+known-first-party = ["findex"]
+
 known-first-party = ["findex"]
 
 [tool.hatch.build.targets.wheel]
