@@ -3,7 +3,6 @@
 from typing import cast
 
 from fastapi.testclient import TestClient
-
 from findex import DocMeta, Posting
 from findex.model import Index
 from findex.search import Matcher
