@@ -68,7 +68,6 @@ ignore = ["E501"]
 [tool.ruff.lint.isort]
 known-first-party = ["findex"]
 
-known-first-party = ["findex"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/findex"]
