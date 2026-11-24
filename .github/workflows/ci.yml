@@ -13,8 +13,6 @@ jobs:
       - run: uv sync
       - run: uv run ruff check --ignore I001
       - run: uv run ruff format --check
-      - run: uv run pyright
-      - run: uv run python -m pytest --cov=findex
       - run: uv run --reinstall-package findex pyright
       - run: uv run --reinstall-package findex python -m pytest --cov=findex
 
