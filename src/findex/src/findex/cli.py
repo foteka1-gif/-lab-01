@@ -41,6 +41,13 @@ from .query import parse
 from .scoring import ScorerName, make_scorer
 from .search import SearchResult
 from .search import search as run_search
+from .semantic import (
+    SearchMode,
+    SemanticIndex,
+    build_semantic_index,
+    hybrid_search,
+    semantic_search,
+)
 from .snippets import snippet_for
 
 log = logging.getLogger(__name__)
@@ -71,6 +78,20 @@ class ExecutorChoice(StrEnum):
     serial = "serial"
     threads = "threads"
     processes = "processes"
+
+
+class ModeChoice(StrEnum):
+    lexical = "lexical"
+    semantic = "semantic"
+    hybrid = "hybrid"
+
+
+def _mode_name(choice: ModeChoice) -> SearchMode:
+    if choice is ModeChoice.semantic:
+        return "semantic"
+    if choice is ModeChoice.hybrid:
+        return "hybrid"
+    return "lexical"
 
 
 def _index_format(choice: FormatChoice) -> IndexFormat:
@@ -380,6 +401,36 @@ def _highlight(snippet: str) -> Text:
     return text
 
 
+@app.command("embed")
+def embed_cmd(
+    index_file: Annotated[Path, typer.Argument(help="Файл інвертованого індексу.")],
+    out: Annotated[
+        Path | None,
+        typer.Option(
+            "--out", "-o", help="Базовий шлях для .npy (за замовчуванням поруч з індексом)."
+        ),
+    ] = None,
+    chunk_words: Annotated[
+        int, typer.Option("--chunk-words", min=10, help="Розмір фрагмента у словах.")
+    ] = 80,
+    overlap: Annotated[
+        int, typer.Option("--overlap", min=0, help="Перекриття сусідніх фрагментів у словах.")
+    ] = 20,
+    fmt: Annotated[FormatChoice, typer.Option("--format", help="Формат файлу індексу.")] = (
+        FormatChoice.pickle
+    ),
+) -> None:
+    """Поділити документи на фрагменти, порахувати нормалізовані ембединги й зберегти у .npy."""
+    target_base = out if out is not None else index_file.with_suffix(".npy")
+    with _expected_errors(index_file), open_index(index_file, _index_format(fmt)) as index:
+        sem_index = build_semantic_index(index, chunk_words=chunk_words, overlap=overlap)
+        npy_path, meta_path = sem_index.save(target_base)
+    console.print(
+        f"Ембединги збережено: [bold]{escape(str(npy_path))}[/bold] "
+        f"(фрагментів: {len(sem_index.chunks)}, метадані: {escape(str(meta_path))})"
+    )
+
+
 @app.command("search")
 def search_cmd(
     index_file: Annotated[Path, typer.Argument(help="Файл індексу.")],
@@ -388,6 +439,13 @@ def search_cmd(
     scorer: Annotated[ScorerChoice, typer.Option("--scorer", help="Функція ранжування.")] = (
         ScorerChoice.bm25
     ),
+    mode: Annotated[
+        ModeChoice, typer.Option("--mode", "-m", help="Режим пошуку: lexical, semantic, hybrid.")
+    ] = ModeChoice.lexical,
+    semantic_file: Annotated[
+        Path | None,
+        typer.Option("--semantic", help="Шлях до .npy матриці ембедингів (для semantic/hybrid)."),
+    ] = None,
     as_json: Annotated[
         bool, typer.Option("--json", help="JSON-рядки у stdout (для | jq).")
     ] = False,
@@ -399,14 +457,48 @@ def search_cmd(
     """Ранжований пошук за запитом."""
     with _expected_errors(index_file), open_index(index_file, _index_format(fmt)) as index:
         score_fn = make_scorer(_scorer_name(scorer))
-        results = run_search(index, query, scorer=score_fn, k=k)
-        terms = list(dict.fromkeys(parse(query).terms()))
+        selected_mode = _mode_name(mode)
+
+        sem_index: SemanticIndex | None = None
+        if selected_mode in ("semantic", "hybrid"):
+            sem_base = (
+                semantic_file if semantic_file is not None else index_file.with_suffix(".npy")
+            )
+            if (
+                sem_base.with_suffix(".npy").is_file()
+                and sem_base.with_suffix(".chunks.json").is_file()
+            ):
+                sem_index = SemanticIndex.load(sem_base)
+            else:
+                sem_index = build_semantic_index(index)
+
+        if selected_mode == "semantic":
+            assert sem_index is not None
+            results = semantic_search(index, sem_index, query, k=k)
+            terms = [w.lower() for w in query.split() if len(w) >= 2]
+        elif selected_mode == "hybrid":
+            try:
+                tree = parse(query)
+                lex_results = run_search(index, query, scorer=score_fn, k=max(k * 3, 20))
+                terms = list(dict.fromkeys(tree.terms()))
+            except ValueError:
+                lex_results = []
+                terms = [w.lower() for w in query.split() if len(w) >= 2]
+            results = hybrid_search(index, sem_index, lex_results, query, k=k)
+        else:
+            results = run_search(index, query, scorer=score_fn, k=k)
+            terms = list(dict.fromkeys(parse(query).terms()))
+
         hits = [
-            Hit(rank, res, _safe_snippet(index, res.doc_id, terms) if snippets else "")
+            Hit(
+                rank,
+                res,
+                (_safe_snippet(index, res.doc_id, terms) or res.snippet) if snippets else "",
+            )
             for rank, res in enumerate(results, start=1)
         ]
 
-    log.info("Запит %r -> %d результатів", query, len(hits))
+    log.info("Запит %r -> %d результатів (mode=%s)", query, len(hits), selected_mode)
 
     if as_json:
         for hit in hits:
@@ -424,7 +516,7 @@ def search_cmd(
         console.print("Нічого не знайдено.")
         return
 
-    table = Table(title=f"Результати для {query!r} ({scorer.value})")
+    table = Table(title=f"Результати для {query!r} ({scorer.value}, {selected_mode})")
     table.add_column("#", justify="right", style="cyan", no_wrap=True)
     table.add_column("Оцінка", justify="right", style="green", no_wrap=True)
     table.add_column("Документ", style="bold")
