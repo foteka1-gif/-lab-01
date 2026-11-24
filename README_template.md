@@ -72,7 +72,7 @@ OK	status=200	attempts=2	bytes=86	time=0.316s	http://127.0.0
 ERR	status=404	attempts=1	error=HTTP 404	time=0.081s	http://127.0.0
 OK	status=200	attempts=2	bytes=86	time=0.423s	http://127.0.0
 ```
-> **Публічний вебсервіс (Lab 7):** https://onrender.com
+> **Публічний вебсервіс (Lab 7):** https://lab-01-feum.onrender.com/?q=&scorer=bm25&k=10
 
 ## Вебсервіс пошуку на FastAPI (Lab 7)
 
