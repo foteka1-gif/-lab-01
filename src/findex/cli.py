@@ -478,5 +478,42 @@ def stats_cmd(
     console.print(summary)
 
 
+# --- findex serve ------------------------------------------------------------
+@app.command("serve")
+def serve_cmd(
+    index_file: Annotated[
+        Path | None,
+        typer.Option("--index", "-i", envvar="INDEX_PATH", help="Шлях до файлу індексу."),
+    ] = None,
+    host: Annotated[str, typer.Option("--host", envvar="HOST", help="Адреса прослуховування.")] = (
+        "0.0.0.0"
+    ),
+    port: Annotated[int, typer.Option("--port", "-p", envvar="PORT", min=1, max=65535)] = 8000,
+    workers: Annotated[int, typer.Option("--workers", "-w", envvar="WORKERS", min=1)] = 1,
+    fmt: Annotated[FormatChoice, typer.Option("--format", envvar="INDEX_FORMAT")] = (
+        FormatChoice.pickle
+    ),
+) -> None:
+    """Запустити вебсервер пошуку (FastAPI + uvicorn)."""
+    import os
+
+    import uvicorn
+
+    if index_file is not None:
+        os.environ["INDEX_PATH"] = str(index_file)
+    os.environ["INDEX_FORMAT"] = _index_format(fmt)
+    os.environ["HOST"] = host
+    os.environ["PORT"] = str(port)
+    os.environ["WORKERS"] = str(workers)
+
+    uvicorn.run(
+        "findex.web.app:app",
+        host=host,
+        port=port,
+        workers=workers,
+        log_level="info",
+    )
+
+
 if __name__ == "__main__":
     app()
